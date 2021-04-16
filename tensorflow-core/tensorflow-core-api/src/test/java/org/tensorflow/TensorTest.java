@@ -15,21 +15,8 @@ limitations under the License.
 
 package org.tensorflow;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
-
-import java.nio.Buffer;
-import java.nio.BufferUnderflowException;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.DoubleBuffer;
-import java.nio.FloatBuffer;
-import java.nio.IntBuffer;
-import java.nio.LongBuffer;
 import org.junit.jupiter.api.Test;
+import org.tensorflow.TensorPrinter.Options;
 import org.tensorflow.ndarray.BooleanNdArray;
 import org.tensorflow.ndarray.DoubleNdArray;
 import org.tensorflow.ndarray.FloatNdArray;
@@ -50,10 +37,46 @@ import org.tensorflow.types.TInt64;
 import org.tensorflow.types.TString;
 import org.tensorflow.types.TUint8;
 
+import java.nio.Buffer;
+import java.nio.BufferUnderflowException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.DoubleBuffer;
+import java.nio.FloatBuffer;
+import java.nio.IntBuffer;
+import java.nio.LongBuffer;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+
 /** Unit tests for {@link org.tensorflow.Tensor}. */
 public class TensorTest {
   private static final double EPSILON = 1e-7;
   private static final float EPSILON_F = 1e-7f;
+
+  // Workaround for cross compiliation
+  // (e.g., javac -source 1.9 -target 1.8).
+  //
+  // In Java 8 and prior, subclasses of java.nio.Buffer (e.g., java.nio.DoubleBuffer) inherited the
+  // "flip()" and "clear()" methods from java.nio.Buffer resulting in the signature:
+  //   Buffer flip();
+  // In Java 9 these subclasses had their own methods like:
+  //   DoubleBuffer flip();
+  // As a result, compiling for 1.9 source for a target of JDK 1.8 would result in errors at runtime
+  // like:
+  //
+  // java.lang.NoSuchMethodError: java.nio.DoubleBuffer.flip()Ljava/nio/DoubleBuffer
+  private static void flipBuffer(Buffer buf) {
+    buf.flip();
+  }
+
+  // See comment for flipBuffer()
+  private static void clearBuffer(Buffer buf) {
+    buf.clear();
+  }
 
   @Test
   public void createWithRawData() {
@@ -66,7 +89,7 @@ public class TensorTest {
     Shape strings_shape = Shape.scalar();
     byte[] strings_; // raw TF_STRING
     try (TString t = TString.tensorOf(NdArrays.scalarOfObject(strings))) {
-      strings_ = new byte[(int)t.numBytes()];
+      strings_ = new byte[(int) t.numBytes()];
       t.asRawTensor().data().read(strings_);
     }
 
@@ -86,8 +109,11 @@ public class TensorTest {
 
     // validate creating a tensor using a direct byte buffer (in host order)
     {
-      DoubleBuffer buf = ByteBuffer.allocateDirect(8 * doubles.length).order(ByteOrder.nativeOrder())
-          .asDoubleBuffer().put(doubles);
+      DoubleBuffer buf =
+          ByteBuffer.allocateDirect(8 * doubles.length)
+              .order(ByteOrder.nativeOrder())
+              .asDoubleBuffer()
+              .put(doubles);
       try (TFloat64 t = TFloat64.tensorOf(doubles_shape, d -> d.write(DataBuffers.of(buf)))) {
         double[] actual = new double[doubles.length];
         t.read(DataBuffers.of(actual));
@@ -140,10 +166,10 @@ public class TensorTest {
 
   @Test
   public void createWithTypedBuffer() {
-    IntBuffer ints = IntBuffer.wrap(new int[]{1, 2, 3, 4});
-    FloatBuffer floats = FloatBuffer.wrap(new float[]{1f, 2f, 3f, 4f});
-    DoubleBuffer doubles = DoubleBuffer.wrap(new double[]{1d, 2d, 3d, 4d});
-    LongBuffer longs = LongBuffer.wrap(new long[]{1L, 2L, 3L, 4L});
+    IntBuffer ints = IntBuffer.wrap(new int[] {1, 2, 3, 4});
+    FloatBuffer floats = FloatBuffer.wrap(new float[] {1f, 2f, 3f, 4f});
+    DoubleBuffer doubles = DoubleBuffer.wrap(new double[] {1d, 2d, 3d, 4d});
+    LongBuffer longs = LongBuffer.wrap(new long[] {1L, 2L, 3L, 4L});
 
     // validate creating a tensor using a typed buffer
     {
@@ -243,7 +269,7 @@ public class TensorTest {
       // validate the use of direct buffers
       {
         ByteBuffer bbuf =
-            ByteBuffer.allocateDirect((int)tdoubles.numBytes()).order(ByteOrder.nativeOrder());
+            ByteBuffer.allocateDirect((int) tdoubles.numBytes()).order(ByteOrder.nativeOrder());
         tdoubles.asRawTensor().data().copyTo(DataBuffers.of(bbuf), tdoubles.numBytes());
         assertEquals(doubles[0], bbuf.asDoubleBuffer().get(0), EPSILON);
       }
@@ -251,13 +277,17 @@ public class TensorTest {
       // validate byte order conversion
       {
         DoubleBuffer foreignBuf =
-            ByteBuffer.allocate((int)tdoubles.numBytes())
+            ByteBuffer.allocate((int) tdoubles.numBytes())
                 .order(
                     ByteOrder.nativeOrder() == ByteOrder.LITTLE_ENDIAN
                         ? ByteOrder.BIG_ENDIAN
                         : ByteOrder.LITTLE_ENDIAN)
                 .asDoubleBuffer();
-        tdoubles.asRawTensor().data().asDoubles().copyTo(DataBuffers.of(foreignBuf), foreignBuf.capacity());
+        tdoubles
+            .asRawTensor()
+            .data()
+            .asDoubles()
+            .copyTo(DataBuffers.of(foreignBuf), foreignBuf.capacity());
         double[] actual = new double[foreignBuf.remaining()];
         foreignBuf.get(actual);
         assertArrayEquals(doubles, actual, EPSILON);
@@ -320,7 +350,7 @@ public class TensorTest {
 
   @Test
   public void nDimensional() {
-    DoubleNdArray vector = StdArrays.ndCopyOf(new double[]{1.414, 2.718, 3.1415});
+    DoubleNdArray vector = StdArrays.ndCopyOf(new double[] {1.414, 2.718, 3.1415});
     try (TFloat64 t = TFloat64.tensorOf(vector)) {
       assertEquals(TFloat64.class, t.type());
       assertEquals(DataType.DT_DOUBLE, t.dataType());
@@ -329,7 +359,7 @@ public class TensorTest {
       assertEquals(vector, t);
     }
 
-    IntNdArray matrix = StdArrays.ndCopyOf(new int[][]{{1, 2, 3}, {4, 5, 6}});
+    IntNdArray matrix = StdArrays.ndCopyOf(new int[][] {{1, 2, 3}, {4, 5, 6}});
     try (TInt32 t = TInt32.tensorOf(matrix)) {
       assertEquals(TInt32.class, t.type());
       assertEquals(DataType.DT_INT32, t.dataType());
@@ -339,9 +369,11 @@ public class TensorTest {
       assertEquals(matrix, t);
     }
 
-    LongNdArray threeD = StdArrays.ndCopyOf(new long[][][]{
-      {{1}, {3}, {5}, {7}, {9}}, {{2}, {4}, {6}, {8}, {0}},
-    });
+    LongNdArray threeD =
+        StdArrays.ndCopyOf(
+            new long[][][] {
+              {{1}, {3}, {5}, {7}, {9}}, {{2}, {4}, {6}, {8}, {0}},
+            });
     try (TInt64 t = TInt64.tensorOf(threeD)) {
       assertEquals(TInt64.class, t.type());
       assertEquals(DataType.DT_INT64, t.dataType());
@@ -352,11 +384,13 @@ public class TensorTest {
       assertEquals(threeD, t);
     }
 
-    BooleanNdArray fourD = StdArrays.ndCopyOf(new boolean[][][][]{
-      {{{false, false, false, true}, {false, false, true, false}}},
-      {{{false, false, true, true}, {false, true, false, false}}},
-      {{{false, true, false, true}, {false, true, true, false}}},
-    });
+    BooleanNdArray fourD =
+        StdArrays.ndCopyOf(
+            new boolean[][][][] {
+              {{{false, false, false, true}, {false, false, true, false}}},
+              {{{false, false, true, true}, {false, true, false, false}}},
+              {{{false, true, false, true}, {false, true, true, false}}},
+            });
     try (TBool t = TBool.tensorOf(fourD)) {
       assertEquals(TBool.class, t.type());
       assertEquals(DataType.DT_BOOL, t.dataType());
@@ -387,7 +421,9 @@ public class TensorTest {
     }
 
     NdArray<byte[]> byteMatrix = NdArrays.ofObjects(byte[].class, matrix.shape());
-    matrix.scalars().forEachIndexed((i, s) -> byteMatrix.setObject(s.getObject().getBytes(UTF_8), i));
+    matrix
+        .scalars()
+        .forEachIndexed((i, s) -> byteMatrix.setObject(s.getObject().getBytes(UTF_8), i));
     try (TString t = TString.tensorOfBytes(byteMatrix)) {
       assertEquals(TString.class, t.type());
       assertEquals(DataType.DT_STRING, t.dataType());
@@ -512,9 +548,10 @@ public class TensorTest {
     //
     // An exception is made for this test, where the pitfalls of this is avoided by not calling
     // close() on both Tensors.
-    final FloatNdArray matrix = StdArrays.ndCopyOf(new float[][]{{1, 2, 3}, {4, 5, 6}});
+    final FloatNdArray matrix = StdArrays.ndCopyOf(new float[][] {{1, 2, 3}, {4, 5, 6}});
     try (TFloat32 src = TFloat32.tensorOf(matrix)) {
-      TFloat32 cpy = (TFloat32)RawTensor.fromHandle(src.asRawTensor().nativeHandle()).asTypedTensor();
+      TFloat32 cpy =
+          (TFloat32) RawTensor.fromHandle(src.asRawTensor().nativeHandle()).asTypedTensor();
       assertEquals(src.type(), cpy.type());
       assertEquals(src.dataType(), cpy.dataType());
       assertEquals(src.shape().numDimensions(), cpy.shape().numDimensions());
@@ -541,24 +578,55 @@ public class TensorTest {
     }
   }
 
-  // Workaround for cross compiliation
-  // (e.g., javac -source 1.9 -target 1.8).
-  //
-  // In Java 8 and prior, subclasses of java.nio.Buffer (e.g., java.nio.DoubleBuffer) inherited the
-  // "flip()" and "clear()" methods from java.nio.Buffer resulting in the signature:
-  //   Buffer flip();
-  // In Java 9 these subclasses had their own methods like:
-  //   DoubleBuffer flip();
-  // As a result, compiling for 1.9 source for a target of JDK 1.8 would result in errors at runtime
-  // like:
-  //
-  // java.lang.NoSuchMethodError: java.nio.DoubleBuffer.flip()Ljava/nio/DoubleBuffer
-  private static void flipBuffer(Buffer buf) {
-    buf.flip();
-  }
-
-  // See comment for flipBuffer()
-  private static void clearBuffer(Buffer buf) {
-    buf.clear();
+  @Test
+  public void testPrint() {
+    try (TInt32 t = TInt32.vectorOf(3, 0, 1)) {
+      String actual = t.print();
+      assertEquals("[3, 0, 1]", actual);
+    }
+    try (TInt32 t = TInt32.vectorOf(3, 0, 1)) {
+      String actual = t.print(Options.create().maxWidth(5));
+      // Cannot remove first or last element
+      assertEquals("[3, 0, 1]", actual);
+    }
+    try (TInt32 t = TInt32.vectorOf(3, 0, 1)) {
+      String actual = t.print(Options.create().maxWidth(6));
+      // Do not insert ellipses if it increases the length
+      assertEquals("[3, 0, 1]", actual);
+    }
+    try (TInt32 t = TInt32.vectorOf(3, 0, 1, 2)) {
+      String actual = t.print(Options.create().maxWidth(11));
+      // Limit may be surpassed if first or last element are too long
+      assertEquals("[3, ..., 2]", actual);
+    }
+    try (TInt32 t = TInt32.vectorOf(3, 0, 1, 2)) {
+      String actual = t.print(Options.create().maxWidth(12));
+      assertEquals("[3, 0, 1, 2]", actual);
+    }
+    try (TInt32 t = TInt32.tensorOf(StdArrays.ndCopyOf(new int[][] {{1, 2, 3}, {3, 2, 1}}))) {
+      String actual = t.print(Options.create().maxWidth(12));
+      assertEquals("[\n" + "  [1, 2, 3]\n" + "  [3, 2, 1]\n" + "]", actual);
+    }
+    try (RawTensor t = TInt32.vectorOf(3, 0, 1, 2).asRawTensor()) {
+      String actual = t.print(Options.create().maxWidth(12).encloseWithBraces());
+      assertEquals("{3, 0, 1, 2}", actual);
+    }
+    // different data types
+    try (RawTensor t = TFloat32.vectorOf(3.0101f, 0, 1.5f, 2).asRawTensor()) {
+      String actual = t.print();
+      assertEquals("[3.0101, 0.0, 1.5, 2.0]", actual);
+    }
+    try (RawTensor t = TFloat64.vectorOf(3.0101, 0, 1.5, 2).asRawTensor()) {
+      String actual = t.print();
+      assertEquals("[3.0101, 0.0, 1.5, 2.0]", actual);
+    }
+    try (RawTensor t = TBool.vectorOf(true, true, false, true).asRawTensor()) {
+      String actual = t.print();
+      assertEquals("[true, true, false, true]", actual);
+    }
+    try (RawTensor t = TString.vectorOf("a", "b", "c").asRawTensor()) {
+      String actual = t.print();
+      assertEquals("[\"a\", \"b\", \"c\"]", actual);
+    }
   }
 }

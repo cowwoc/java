@@ -15,6 +15,7 @@ limitations under the License.
 
 package org.tensorflow;
 
+import org.tensorflow.TensorPrinter.Options;
 import org.tensorflow.ndarray.Shape;
 import org.tensorflow.ndarray.Shaped;
 import org.tensorflow.op.Op;
@@ -56,7 +57,7 @@ public interface Operand<T extends TType> extends Op, Shaped {
   /**
    * Returns the tensor at this operand.
    *
-   * <i>Only works when running in an eager execution</i>
+   * <p><i>Only works when running in an eager execution</i>
    *
    * @return the tensor
    * @throws IllegalStateException if this is an operand of a graph
@@ -66,14 +67,34 @@ public interface Operand<T extends TType> extends Op, Shaped {
   }
 
   /**
-   * Returns the tensor type of this operand
+   * Returns the String representation of the tensor elements at this operand.
+   *
+   * @return the String representation of the tensor elements
+   * @throws IllegalStateException if this is an operand of a graph
    */
+  default String print() {
+    return asTensor().print();
+  }
+
+  /**
+   * Returns the String representation of the tensor elements at this operand.
+   *
+   * @param options overrides the default configuration
+   * @return the String representation of the tensor elements
+   * @throws IllegalStateException if this is an operand of a graph
+   */
+  default String print(Options options) {
+    return asTensor().print(options);
+  }
+
+  /** Returns the tensor type of this operand */
   default Class<T> type() {
     return asOutput().type();
   }
 
   /**
-   * Returns the (possibly partially known) shape of the tensor referred to by the {@link Output} of this operand.
+   * Returns the (possibly partially known) shape of the tensor referred to by the {@link Output} of
+   * this operand.
    */
   @Override
   default Shape shape() {
